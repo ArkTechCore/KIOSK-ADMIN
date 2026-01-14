@@ -14,7 +14,10 @@ export default function TopNav() {
     return (
       <Link
         href={href}
-        className={`px-3 py-2 rounded-lg text-sm ${active ? "bg-black text-white" : "hover:bg-gray-100"}`}
+        className={[
+          "px-3 py-2 rounded-lg text-sm font-medium transition",
+          active ? "bg-black text-white" : "text-gray-800 hover:bg-gray-100",
+        ].join(" ")}
       >
         {label}
       </Link>
@@ -24,11 +27,12 @@ export default function TopNav() {
   return (
     <div className="border-b bg-white">
       <div className="mx-auto max-w-5xl px-4 py-3 flex items-center gap-3">
-        <div className="font-semibold">Kiosk Admin</div>
+        <div className="font-semibold text-gray-900">Kiosk Admin</div>
 
         {loggedIn && (
           <div className="flex items-center gap-2 ml-2">
             {item("/stores", "Stores")}
+            {item("/catalog", "Catalog")}
           </div>
         )}
 
