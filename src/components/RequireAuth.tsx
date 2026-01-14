@@ -8,9 +8,9 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
   const r = useRouter();
 
   useEffect(() => {
-    const t = getToken();
-    if (!t) r.replace("/login");
+    if (!getToken()) r.replace("/login");
   }, [r]);
 
+  if (!getToken()) return null;
   return <>{children}</>;
 }
