@@ -4,9 +4,11 @@ export function getToken() {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("admin_token");
 }
+
 export function setToken(token: string) {
   localStorage.setItem("admin_token", token);
 }
+
 export function clearToken() {
   localStorage.removeItem("admin_token");
 }
@@ -16,9 +18,10 @@ async function request(path: string, opts: RequestInit = {}) {
 
   const token = getToken();
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
     ...(opts.headers as any),
   };
+
+  if (!headers["Content-Type"] && opts.body) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${BASE}/api/v1${path}`, { ...opts, headers, cache: "no-store" });
@@ -31,71 +34,95 @@ async function request(path: string, opts: RequestInit = {}) {
 
   if (!res.ok) {
     const msg = json?.detail || json?.message || text || `Request failed (${res.status})`;
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    throw new Error(msg);
   }
+
   return json;
 }
 
-export type AdminStore = { store_id: string; name: string; active: boolean };
-
-export type CatalogCategory = { id: string; name: string; sort: number; imageUrl?: string | null; active?: boolean };
-export type CatalogProduct = {
-  id: string;
-  categoryId: string;
+/** ===== Types ===== */
+export type AdminStore = {
+  store_id: string;
   name: string;
-  description: string;
-  basePriceCents: number;
-  imageUrl?: string | null;
-  active?: boolean;
-};
-export type ModifierGroup = {
-  id: string;
-  productId: string;
-  title: string;
-  required: boolean;
-  minSelect: number;
-  maxSelect: number;
-  uiType: "radio" | "chips";
-  sort: number;
-  active?: boolean;
-};
-export type ModifierOption = {
-  id: string;
-  groupId: string;
-  name: string;
-  deltaCents: number;
-  sort: number;
-  active?: boolean;
+  active: boolean;
 };
 
 export type CatalogImportPayload = {
-  categories: CatalogCategory[];
-  products: CatalogProduct[];
-  modifierGroups: ModifierGroup[];
-  modifierOptions: ModifierOption[];
+  categories: Array<{ id: string; name: string; sort: number; imageUrl?: string | null; active: boolean }>;
+  products: Array<{
+    id: string;
+    categoryId: string;
+    name: string;
+    description: string;
+    basePriceCents: number;
+    imageUrl?: string | null;
+    active: boolean;
+  }>;
+  modifierGroups: Array<{
+    id: string;
+    productId: string;
+    title: string;
+    required: boolean;
+    minSelect: number;
+    maxSelect: number;
+    uiType: "radio" | "chips";
+    sort: number;
+    active: boolean;
+  }>;
+  modifierOptions: Array<{
+    id: string;
+    groupId: string;
+    name: string;
+    deltaCents: number;
+    sort: number;
+    active: boolean;
+  }>;
 };
 
-export type CatalogExportPayload = CatalogImportPayload;
-
 export const api = {
+  // -------- AUTH --------
   adminLogin: (email: string, password: string) =>
-    request("/admin/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
-
-  listStores: (): Promise<AdminStore[]> => request("/admin/stores"),
-
-  createStore: (store_id: string, name: string, password: string, tax_rate: number) =>
-    request("/admin/stores", { method: "POST", body: JSON.stringify({ store_id, name, password, tax_rate }) }),
-
-  resetStorePassword: (store_id: string, password: string) =>
-    request(`/admin/stores/${encodeURIComponent(store_id)}/reset-password`, {
+    request("/admin/auth/login", {
       method: "POST",
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ email, password }),
     }),
 
-  catalogExport: (): Promise<CatalogExportPayload> => request("/admin/catalog/export"),
+  // -------- STORES --------
+  listStores: (): Promise<AdminStore[]> => request("/admin/stores"),
 
-  catalogImport: (payload: CatalogImportPayload): Promise<{ ok: boolean; counts: any }> =>
-    request("/admin/catalog/import", { method: "POST", body: JSON.stringify(payload) }),
+  // NOTE: Your Swagger shows AdminCreateStoreIn object.
+  // If it doesn't have tax_rate, remove it from payload.
+  createStore: (store_id: string, name: string, password: string, tax_rate?: number) =>
+    request("/admin/stores", {
+      method: "POST",
+      body: JSON.stringify({
+        store_id,
+        name,
+        password,
+        // only send tax_rate if you actually use it backend-side
+        ...(typeof tax_rate === "number" ? { tax_rate } : {}),
+      }),
+    }),
 
-  adminDailyReport: (date: string) => request(`/admin/reports/daily?date=${encodeURIComponent(date)}`),
+  // Swagger: POST /admin/stores/{store_id}/reset-password
+  // Your backend *likely* generates a new password and returns it.
+  // So frontend should NOT ask for newPass unless your API accepts it.
+  resetStorePassword: (store_id: string) =>
+    request(`/admin/stores/${encodeURIComponent(store_id)}/reset-password`, {
+      method: "POST",
+    }),
+
+  // -------- REPORTS --------
+  // Swagger: GET /admin/reports/daily (no date param shown in your list)
+  // If your backend supports ?date=YYYY-MM-DD we'll send it.
+  adminDailyReport: (date?: string) =>
+    request(`/admin/reports/daily${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+
+  // -------- CATALOG --------
+  exportCatalog: (): Promise<CatalogImportPayload> => request("/admin/catalog/export"),
+  importCatalog: (payload: CatalogImportPayload) =>
+    request("/admin/catalog/import", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };

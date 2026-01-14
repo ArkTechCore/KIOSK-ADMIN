@@ -18,37 +18,53 @@ export default function ReportsPage() {
           <p className="text-sm text-gray-700">Admin daily report (all stores).</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          {err && <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
+        {err && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {err}
+          </div>
+        )}
 
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label className="text-sm font-medium">Date</label>
-              <input className="mt-1 rounded-lg border px-3 py-2 text-sm" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            </div>
-
-            <button
-              className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:opacity-95 disabled:opacity-60"
-              disabled={busy}
-              onClick={async () => {
-                setErr(null);
-                setBusy(true);
-                try {
-                  setOut(await api.adminDailyReport(date));
-                } catch (e: any) {
-                  setErr(e?.message || "Failed");
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              {busy ? "Loading..." : "Run report"}
-            </button>
+        <div className="card">
+          <div className="card-h">
+            <div className="font-semibold">Daily report</div>
+            <div className="text-xs text-gray-500">If backend supports date filtering, it will use ?date=YYYY-MM-DD.</div>
           </div>
 
-          <pre className="mt-4 max-h-[520px] overflow-auto rounded-xl border bg-gray-50 p-3 text-xs">
-            {out ? JSON.stringify(out, null, 2) : "No data yet."}
-          </pre>
+          <div className="card-b">
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <div className="label">Date</div>
+                <input
+                  className="input"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+              </div>
+
+              <button
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={async () => {
+                  setErr(null);
+                  setBusy(true);
+                  try {
+                    setOut(await api.adminDailyReport(date));
+                  } catch (e: any) {
+                    setErr(e?.message || "Failed");
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy ? "Loading..." : "Run report"}
+              </button>
+            </div>
+
+            <pre className="mt-4 max-h-[520px] overflow-auto rounded-xl border bg-gray-50 p-3 text-xs text-gray-900">
+              {out ? JSON.stringify(out, null, 2) : "No data yet."}
+            </pre>
+          </div>
         </div>
       </div>
     </RequireAuth>
