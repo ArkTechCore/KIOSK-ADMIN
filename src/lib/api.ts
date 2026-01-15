@@ -1,11 +1,5 @@
 const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 
-/**
- * Expect NEXT_PUBLIC_API_BASE_URL like:
- *   https://kiosk-backend-c0ba.onrender.com
- * or
- *   https://kiosk-backend-c0ba.onrender.com/api/v1
- */
 function normalizeBase(raw?: string) {
   if (!raw) return null;
   const base = raw.replace(/\/+$/, "");
@@ -14,6 +8,7 @@ function normalizeBase(raw?: string) {
 
 const BASE = normalizeBase(RAW_BASE);
 
+// ---------------- TOKEN ----------------
 export function getToken() {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("admin_token");
@@ -29,6 +24,7 @@ export function clearToken() {
   localStorage.removeItem("admin_token");
 }
 
+// ---------------- REQUEST ----------------
 async function request<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   if (!BASE) throw new Error("Missing NEXT_PUBLIC_API_BASE_URL");
 
@@ -40,10 +36,15 @@ async function request<T = any>(path: string, opts: RequestInit = {}): Promise<T
 
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${BASE}${path}`, { ...opts, headers, cache: "no-store" });
-  const text = await res.text();
+  const res = await fetch(`${BASE}${path}`, {
+    ...opts,
+    headers,
+    cache: "no-store",
+  });
 
+  const text = await res.text();
   let json: any = null;
+
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
@@ -56,21 +57,28 @@ async function request<T = any>(path: string, opts: RequestInit = {}): Promise<T
       (typeof json === "string" ? json : null) ||
       `Request failed (${res.status})`;
 
-    // If token is bad, clear it so UI can relogin cleanly.
     if (res.status === 401) clearToken();
-
     throw new Error(msg);
   }
 
   return json as T;
 }
 
-// ---------- Types (match backend) ----------
-export type AdminLoginOut = { access_token: string; token_type?: string };
-export type AdminStore = { store_id: string; name: string; active: boolean };
+// ---------------- TYPES ----------------
+export type AdminStore = {
+  store_id: string;
+  name: string;
+  active: boolean;
+};
 
 export type CatalogExport = {
-  categories: Array<{ id: string; name: string; sort: number; imageUrl?: string | null; active: boolean }>;
+  categories: Array<{
+    id: string;
+    name: string;
+    sort: number;
+    imageUrl?: string | null;
+    active: boolean;
+  }>;
   products: Array<{
     id: string;
     categoryId: string;
@@ -101,29 +109,58 @@ export type CatalogExport = {
   }>;
 };
 
+// ---------------- API ----------------
 export const api = {
   // -------- AUTH --------
-  adminLogin: (email: string, password: string) =>
-    request<AdminLoginOut>("/admin/auth/login", {
+  adminLogin: async (email: string, password: string) => {
+    const out = await request<any>("/admin/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
-    }),
+    });
+
+    // ✅ normalize token from ANY backend shape
+    const token =
+      out?.access_token ||
+      out?.accessToken ||
+      out?.token ||
+      out?.jwt ||
+      out?.data?.access_token ||
+      out?.data?.token ||
+      out?.data?.jwt;
+
+    if (!token) {
+      throw new Error(
+        "Login did not return access_token. Backend response: " +
+          JSON.stringify(out)
+      );
+    }
+
+    return { access_token: token };
+  },
 
   // -------- STORES --------
   listStores: () => request<AdminStore[]>("/admin/stores"),
-  createStore: (store_id: string, name: string, password: string, tax_rate: number) =>
+
+  createStore: (
+    store_id: string,
+    name: string,
+    password: string,
+    tax_rate: number
+  ) =>
     request("/admin/stores", {
       method: "POST",
       body: JSON.stringify({ store_id, name, password, tax_rate }),
     }),
+
   resetStorePassword: (store_id: string, password: string) =>
     request(`/admin/stores/${encodeURIComponent(store_id)}/reset-password`, {
       method: "POST",
       body: JSON.stringify({ password }),
     }),
 
-  // -------- CATALOG (one global catalog) --------
+  // -------- CATALOG --------
   exportCatalog: () => request<CatalogExport>("/admin/catalog/export"),
+
   importCatalog: (body: CatalogExport) =>
     request("/admin/catalog/import", {
       method: "POST",
@@ -132,5 +169,7 @@ export const api = {
 
   // -------- REPORTS --------
   adminDailyReport: (date?: string) =>
-    request(`/admin/reports/daily${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+    request(
+      `/admin/reports/daily${date ? `?date=${encodeURIComponent(date)}` : ""}`
+    ),
 };
