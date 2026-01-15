@@ -37,7 +37,7 @@ export default function ReportsPage() {
             </div>
 
             <button
-              className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
               disabled={busy}
               onClick={async () => {
                 setErr(null);

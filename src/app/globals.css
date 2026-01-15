@@ -2,14 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
-}
-
+/* Small global tweaks only (keep Tailwind in control) */
 html, body {
   height: 100%;
 }
 
 body {
-  margin: 0;
+  background: #f7f7f9;
 }

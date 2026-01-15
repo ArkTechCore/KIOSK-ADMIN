@@ -121,7 +121,7 @@ export default function StoresPage() {
                     </button>
 
                     <button
-                      className="rounded-xl bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:opacity-95 disabled:opacity-60"
+                      className="rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
                       disabled={busy}
                       onClick={async () => {
                         const newPass = prompt(`New kiosk password for ${s.store_id}?`);
@@ -167,7 +167,7 @@ export default function StoresPage() {
               <Field label="Tax rate" value={taxRate} setValue={setTaxRate} />
 
               <button
-                className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
                 disabled={busy}
                 onClick={async () => {
                   setErr(null);

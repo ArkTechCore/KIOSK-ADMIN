@@ -4,37 +4,39 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { clearToken, getToken } from "@/lib/api";
 
-export default function TopNav() {
+function NavItem({ href, label }: { href: string; label: string }) {
   const p = usePathname();
+  const active = p === href;
+  return (
+    <Link
+      href={href}
+      className={[
+        "px-3 py-2 rounded-lg text-sm font-medium transition",
+        active ? "bg-red-600 text-white" : "text-gray-700 hover:bg-gray-100",
+      ].join(" ")}
+    >
+      {label}
+    </Link>
+  );
+}
+
+export default function TopNav() {
   const r = useRouter();
   const loggedIn = !!getToken();
 
-  const item = (href: string, label: string) => {
-    const active = p === href;
-    return (
-      <Link
-        href={href}
-        className={[
-          "px-3 py-2 rounded-lg text-sm font-medium transition",
-          active ? "bg-gray-900 text-white" : "text-gray-800 hover:bg-gray-100",
-        ].join(" ")}
-      >
-        {label}
-      </Link>
-    );
-  };
-
   return (
-    <div className="border-b bg-white">
+    <header className="sticky top-0 z-20 border-b bg-white/90 backdrop-blur">
       <div className="mx-auto max-w-6xl px-4 py-3 flex items-center gap-3">
-        <div className="font-semibold text-gray-900">Kiosk Admin</div>
+        <Link href={loggedIn ? "/stores" : "/login"} className="font-semibold tracking-tight">
+          Kiosk Admin
+        </Link>
 
         {loggedIn && (
-          <div className="flex items-center gap-2 ml-2">
-            {item("/stores", "Stores")}
-            {item("/catalog", "Menu")}
-            {item("/reports", "Reports")}
-          </div>
+          <nav className="flex items-center gap-2 ml-2">
+            <NavItem href="/stores" label="Stores" />
+            <NavItem href="/catalog" label="Menu" />
+            <NavItem href="/reports" label="Reports" />
+          </nav>
         )}
 
         <div className="ml-auto">
@@ -44,13 +46,13 @@ export default function TopNav() {
                 clearToken();
                 r.push("/login");
               }}
-              className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50"
+              className="px-3 py-2 rounded-lg border text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Logout
             </button>
           )}
         </div>
       </div>
-    </div>
+    </header>
   );
 }

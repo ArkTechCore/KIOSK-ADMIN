@@ -1,96 +1,91 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import RequireAuth from "@/components/RequireAuth";
-import { api, CatalogImportPayload } from "@/lib/api";
+import { api, CatalogExport } from "@/lib/api";
 
-const emptyCatalog: CatalogImportPayload = {
+const EMPTY: CatalogExport = {
   categories: [],
   products: [],
   modifierGroups: [],
   modifierOptions: [],
 };
 
-function pretty(obj: any) {
-  return JSON.stringify(obj, null, 2);
-}
-
-function safeJsonParse<T>(s: string): { ok: true; value: T } | { ok: false; error: string } {
+function safeJsonParse(text: string): { ok: true; value: any } | { ok: false; error: string } {
   try {
-    return { ok: true, value: JSON.parse(s) as T };
+    return { ok: true, value: JSON.parse(text) };
   } catch (e: any) {
     return { ok: false, error: e?.message || "Invalid JSON" };
   }
 }
 
-function validateCatalog(x: CatalogImportPayload) {
-  // lightweight checks to prevent obvious mistakes
-  const catIds = new Set(x.categories.map(c => c.id));
-  for (const p of x.products) {
-    if (!catIds.has(p.categoryId)) throw new Error(`Product ${p.id} references missing categoryId=${p.categoryId}`);
-  }
-  const prodIds = new Set(x.products.map(p => p.id));
-  for (const g of x.modifierGroups) {
-    if (!prodIds.has(g.productId)) throw new Error(`Group ${g.id} references missing productId=${g.productId}`);
-  }
-  const groupIds = new Set(x.modifierGroups.map(g => g.id));
-  for (const o of x.modifierOptions) {
-    if (!groupIds.has(o.groupId)) throw new Error(`Option ${o.id} references missing groupId=${o.groupId}`);
-  }
+function downloadJson(filename: string, obj: any) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function CatalogPage() {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
 
-  const [catalog, setCatalog] = useState<CatalogImportPayload>(emptyCatalog);
-  const [jsonText, setJsonText] = useState<string>(pretty(emptyCatalog));
+  const [jsonText, setJsonText] = useState(JSON.stringify(EMPTY, null, 2));
+  const parsed = useMemo(() => safeJsonParse(jsonText), [jsonText]);
 
   const counts = useMemo(() => {
+    if (!parsed.ok) return null;
+    const v = parsed.value || {};
     return {
-      categories: catalog.categories.length,
-      products: catalog.products.length,
-      groups: catalog.modifierGroups.length,
-      options: catalog.modifierOptions.length,
+      categories: Array.isArray(v.categories) ? v.categories.length : 0,
+      products: Array.isArray(v.products) ? v.products.length : 0,
+      modifierGroups: Array.isArray(v.modifierGroups) ? v.modifierGroups.length : 0,
+      modifierOptions: Array.isArray(v.modifierOptions) ? v.modifierOptions.length : 0,
     };
-  }, [catalog]);
+  }, [parsed]);
 
-  async function load() {
+  async function loadFromBackend() {
     setErr(null);
-    setOk(null);
+    setOkMsg(null);
     setBusy(true);
     try {
       const data = await api.exportCatalog();
-      setCatalog(data);
-      setJsonText(pretty(data));
+      setJsonText(JSON.stringify(data || EMPTY, null, 2));
+      setOkMsg("Loaded catalog from backend.");
     } catch (e: any) {
-      setErr(e?.message || "Failed to export catalog");
+      setErr(e?.message || "Failed to load catalog");
     } finally {
       setBusy(false);
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function importNow() {
+  async function importToBackend() {
     setErr(null);
-    setOk(null);
+    setOkMsg(null);
 
-    const parsed = safeJsonParse<CatalogImportPayload>(jsonText);
     if (!parsed.ok) {
       setErr(parsed.error);
       return;
     }
 
+    // very light shape check
+    const v = parsed.value;
+    const missing = ["categories", "products", "modifierGroups", "modifierOptions"].filter((k) => !Array.isArray(v?.[k]));
+    if (missing.length) {
+      setErr(`Missing/invalid arrays: ${missing.join(", ")}`);
+      return;
+    }
+
     setBusy(true);
     try {
-      validateCatalog(parsed.value);
-      await api.importCatalog(parsed.value);
-      setOk("Imported successfully. Reloading...");
-      await load();
+      await api.importCatalog(v as CatalogExport);
+      setOkMsg("Imported successfully. Your kiosk app will show it on the next refresh.");
     } catch (e: any) {
       setErr(e?.message || "Import failed");
     } finally {
@@ -100,78 +95,118 @@ export default function CatalogPage() {
 
   return (
     <RequireAuth>
-      <div className="space-y-4">
+      <div className="space-y-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold">Catalog</h1>
-            <p className="text-sm text-gray-600">
-              Simple workflow: Export → Edit JSON → Import. Best for adding 100s of items quickly.
+            <h1 className="text-xl font-semibold">Menu (Catalog)</h1>
+            <p className="text-sm text-gray-700">
+              Fast workflow for 100s of items: <span className="font-medium">Export → Edit JSON → Import</span>.
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button className="btn btn-ghost" onClick={load} disabled={busy}>
-              {busy ? "Working..." : "Reload"}
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded-lg border px-4 py-2 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
+              disabled={busy}
+              onClick={loadFromBackend}
+            >
+              {busy ? "Loading..." : "Export from backend"}
             </button>
-            <button className="btn btn-primary" onClick={importNow} disabled={busy}>
-              Import to backend
+
+            <button
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              disabled={busy}
+              onClick={importToBackend}
+            >
+              {busy ? "Working..." : "Import to backend"}
             </button>
+
+            <button
+              className="rounded-lg border px-4 py-2 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
+              disabled={busy}
+              onClick={() => {
+                if (!parsed.ok) return;
+                downloadJson("catalog.json", parsed.value);
+              }}
+            >
+              Download JSON
+            </button>
+
+            <button
+              className="rounded-lg border px-4 py-2 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
+              disabled={busy}
+              onClick={() => fileRef.current?.click()}
+            >
+              Upload JSON
+            </button>
+
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json"
+              className="hidden"
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                const text = await f.text();
+                setJsonText(text);
+              }}
+            />
           </div>
         </div>
 
         {err && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
-        {ok && <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{ok}</div>}
+        {okMsg && <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">{okMsg}</div>}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="card">
-            <div className="card-h">
-              <div className="font-semibold">Current counts</div>
-              <div className="text-xs text-gray-500">From last Export</div>
+          <div className="rounded-2xl border bg-white p-5 shadow-sm">
+            <div className="font-semibold">Counts</div>
+            <div className="mt-3 space-y-2 text-sm text-gray-700">
+              <div className="flex justify-between"><span>Categories</span><span className="font-medium">{counts?.categories ?? "-"}</span></div>
+              <div className="flex justify-between"><span>Products</span><span className="font-medium">{counts?.products ?? "-"}</span></div>
+              <div className="flex justify-between"><span>Modifier Groups</span><span className="font-medium">{counts?.modifierGroups ?? "-"}</span></div>
+              <div className="flex justify-between"><span>Modifier Options</span><span className="font-medium">{counts?.modifierOptions ?? "-"}</span></div>
             </div>
-            <div className="card-b space-y-2 text-sm">
-              <div className="flex justify-between"><span>Categories</span><b>{counts.categories}</b></div>
-              <div className="flex justify-between"><span>Products</span><b>{counts.products}</b></div>
-              <div className="flex justify-between"><span>Modifier Groups</span><b>{counts.groups}</b></div>
-              <div className="flex justify-between"><span>Modifier Options</span><b>{counts.options}</b></div>
 
-              <div className="pt-3 border-t text-xs text-gray-600 space-y-1">
-                <div><b>Pricing tip:</b> Keep product basePriceCents = 0 for subs, and put price in Size options.</div>
-                <div><b>Rules:</b> Size required 1..1, Bread required 1..1, Add-ons optional 0..10</div>
+            <div className="mt-5 text-xs text-gray-600 leading-relaxed">
+              <div className="font-medium text-gray-800">Rules (recommended)</div>
+              <ul className="mt-1 list-disc pl-5 space-y-1">
+                <li>Size: required, radio, min 1 max 1, price in options</li>
+                <li>Bread: required, radio, min 1 max 1</li>
+                <li>Add-ons: optional, chips, min 0 max 10</li>
+              </ul>
+              <div className="mt-3">
+                Tip: Keep product <span className="font-medium">basePriceCents = 0</span> for subs/wraps and put price in Size option deltaCents.
               </div>
             </div>
+
+            <button
+              className="mt-5 w-full rounded-lg border px-4 py-2 text-sm font-semibold hover:bg-gray-50"
+              onClick={() => setJsonText(JSON.stringify(EMPTY, null, 2))}
+              disabled={busy}
+            >
+              Reset to empty template
+            </button>
           </div>
 
-          <div className="card lg:col-span-2">
-            <div className="card-h flex items-center justify-between gap-3">
-              <div>
-                <div className="font-semibold">Catalog JSON</div>
-                <div className="text-xs text-gray-500">Edit this, then click “Import to backend”.</div>
-              </div>
-
-              <button
-                className="btn btn-ghost"
-                onClick={() => {
-                  setJsonText(pretty(catalog));
-                  setOk("Reset editor to last exported version.");
-                  setErr(null);
-                }}
-                disabled={busy}
-              >
-                Reset editor
-              </button>
-            </div>
-
-            <div className="card-b">
-              <textarea
-                className="input font-mono text-xs min-h-[520px]"
-                value={jsonText}
-                onChange={(e) => setJsonText(e.target.value)}
-                spellCheck={false}
-              />
-              <div className="help mt-2">
-                After import, your Flutter kiosk will show items via <b>/stores/QFC/menu-v2</b>.
+          <div className="lg:col-span-2 rounded-2xl border bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold">Catalog JSON</div>
+              <div className="text-xs">
+                {parsed.ok ? (
+                  <span className="text-green-700 font-medium">Valid JSON</span>
+                ) : (
+                  <span className="text-red-700 font-medium">Invalid JSON</span>
+                )}
               </div>
             </div>
+
+            <textarea
+              className="mt-3 w-full min-h-[520px] rounded-xl border bg-gray-50 p-3 font-mono text-xs outline-none focus:ring-2 focus:ring-red-200"
+              value={jsonText}
+              onChange={(e) => setJsonText(e.target.value)}
+              spellCheck={false}
+            />
           </div>
         </div>
       </div>
