@@ -12,59 +12,52 @@ export default function ReportsPage() {
 
   return (
     <RequireAuth>
-      <div className="space-y-4">
+      <div className="space-y-6">
         <div>
-          <h1 className="text-xl font-semibold">Reports</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Reports</h1>
           <p className="text-sm text-gray-700">Admin daily report (all stores).</p>
         </div>
 
-        {err && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {err}
-          </div>
-        )}
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          {err && (
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {err}
+            </div>
+          )}
 
-        <div className="card">
-          <div className="card-h">
-            <div className="font-semibold">Daily report</div>
-            <div className="text-xs text-gray-500">If backend supports date filtering, it will use ?date=YYYY-MM-DD.</div>
-          </div>
-
-          <div className="card-b">
-            <div className="flex flex-wrap items-end gap-3">
-              <div>
-                <div className="label">Date</div>
-                <input
-                  className="input"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                />
-              </div>
-
-              <button
-                className="btn btn-primary"
-                disabled={busy}
-                onClick={async () => {
-                  setErr(null);
-                  setBusy(true);
-                  try {
-                    setOut(await api.adminDailyReport(date));
-                  } catch (e: any) {
-                    setErr(e?.message || "Failed");
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                {busy ? "Loading..." : "Run report"}
-              </button>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="text-sm font-medium text-gray-900">Date</label>
+              <input
+                className="mt-1 rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
             </div>
 
-            <pre className="mt-4 max-h-[520px] overflow-auto rounded-xl border bg-gray-50 p-3 text-xs text-gray-900">
-              {out ? JSON.stringify(out, null, 2) : "No data yet."}
-            </pre>
+            <button
+              className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              disabled={busy}
+              onClick={async () => {
+                setErr(null);
+                setBusy(true);
+                try {
+                  setOut(await api.adminDailyReport(date));
+                } catch (e: any) {
+                  setErr(e?.message || "Failed");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Loading..." : "Run report"}
+            </button>
           </div>
+
+          <pre className="mt-4 max-h-[520px] overflow-auto rounded-xl border bg-gray-50 p-3 text-xs text-gray-900">
+            {out ? JSON.stringify(out, null, 2) : "No data yet."}
+          </pre>
         </div>
       </div>
     </RequireAuth>
