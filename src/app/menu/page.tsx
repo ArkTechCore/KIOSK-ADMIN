@@ -4,75 +4,80 @@ import { useEffect, useMemo, useState } from "react";
 import RequireAuth from "@/components/RequireAuth";
 import { api, CatalogExport } from "@/lib/api";
 
-function toId(s: string) {
-  return (s || "")
+function cleanId(v: string) {
+  return (v || "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "_")
     .replace(/[^a-z0-9_]/g, "");
 }
 
-function centsFromDollars(v: string) {
-  const n = Number(v);
+function moneyToCents(v: string) {
+  const n = Number(v || 0);
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100);
 }
 
-function dollarsFromCents(c: number) {
-  return (Number(c || 0) / 100).toFixed(2);
-}
-
-function splitCSV(v: string) {
-  return (v || "")
-    .split(",")
-    .map(x => x.trim())
-    .filter(Boolean);
+function centsToMoney(c: number) {
+  return ((Number(c || 0) / 100) || 0).toFixed(2);
 }
 
 export default function MenuPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
 
-  const [catalog, setCatalog] = useState<CatalogExport | null>(null);
+  const [data, setData] = useState<CatalogExport>({
+    categories: [],
+    products: [],
+    modifierGroups: [],
+    modifierOptions: [],
+  });
 
-  // Left list search
-  const [q, setQ] = useState("");
+  const [catId, setCatId] = useState<string>("");
+  const [prodId, setProdId] = useState<string>("");
 
-  // “Editor” fields (single product)
-  const [store, setStore] = useState("GLOBAL"); // UI only for now
-  const [categoryId, setCategoryId] = useState("");
-  const [productId, setProductId] = useState("");
-  const [name, setName] = useState("");
-  const [desc, setDesc] = useState("");
-  const [basePrice, setBasePrice] = useState("0.00");
-  const [imageUrl, setImageUrl] = useState("");
-  const [active, setActive] = useState(true);
+  // product form fields (simple like your example)
+  const selectedProduct = useMemo(
+    () => data.products.find((p) => p.id === prodId) || null,
+    [data.products, prodId]
+  );
 
-  // Build groups as simple comma lists
-  const [breads, setBreads] = useState("white, wheat");
-  const [cheeses, setCheeses] = useState("");
-  const [meats, setMeats] = useState("");
-  const [toppings, setToppings] = useState("");
+  const selectedCategory = useMemo(
+    () => data.categories.find((c) => c.id === catId) || null,
+    [data.categories, catId]
+  );
+
+  const productsInCategory = useMemo(() => {
+    return data.products.filter((p) => p.categoryId === catId);
+  }, [data.products, catId]);
+
+  const groupsForProduct = useMemo(() => {
+    return data.modifierGroups
+      .filter((g) => g.productId === prodId)
+      .sort((a, b) => (a.sort - b.sort) || a.id.localeCompare(b.id));
+  }, [data.modifierGroups, prodId]);
+
+  const optionsForGroup = (groupId: string) =>
+    data.modifierOptions
+      .filter((o) => o.groupId === groupId)
+      .sort((a, b) => (a.sort - b.sort) || a.id.localeCompare(b.id));
 
   async function load() {
     setErr(null);
+    setOk(null);
     setBusy(true);
     try {
-      const data = await api.exportCatalog();
-      // if backend returns empty, normalize
-      const normalized: CatalogExport = {
-        categories: data.categories || [],
-        products: data.products || [],
-        modifierGroups: data.modifierGroups || [],
-        modifierOptions: data.modifierOptions || [],
-      };
-      setCatalog(normalized);
+      const exp = await api.exportCatalog();
+      setData(exp);
 
-      if (!categoryId && normalized.categories.length) {
-        setCategoryId(normalized.categories[0].id);
-      }
+      const firstCat = exp.categories.sort((a, b) => (a.sort - b.sort) || a.id.localeCompare(b.id))[0]?.id || "";
+      setCatId(firstCat);
+
+      const firstProd = exp.products.find((p) => p.categoryId === firstCat)?.id || "";
+      setProdId(firstProd);
     } catch (e: any) {
-      setErr(e?.message || "Failed to load catalog");
+      setErr(e?.message || "Failed to load menu");
     } finally {
       setBusy(false);
     }
@@ -80,148 +85,23 @@ export default function MenuPage() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const categories = catalog?.categories || [];
-  const products = catalog?.products || [];
-  const groups = catalog?.modifierGroups || [];
-  const options = catalog?.modifierOptions || [];
+  // when category changes, pick first product
+  useEffect(() => {
+    if (!catId) return;
+    const first = data.products.find((p) => p.categoryId === catId)?.id || "";
+    setProdId(first);
+  }, [catId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const categoryName = useMemo(() => {
-    return categories.find(c => c.id === categoryId)?.name || "";
-  }, [categories, categoryId]);
-
-  const filteredProducts = useMemo(() => {
-    const qq = q.trim().toLowerCase();
-    const inCat = products.filter(p => (categoryId ? p.categoryId === categoryId : true));
-    if (!qq) return inCat;
-    return inCat.filter(p =>
-      (p.name || "").toLowerCase().includes(qq) || p.id.toLowerCase().includes(qq)
-    );
-  }, [products, q, categoryId]);
-
-  function loadProductToEditor(pid: string) {
-    const p = products.find(x => x.id === pid);
-    if (!p) return;
-
-    setProductId(p.id);
-    setCategoryId(p.categoryId);
-    setName(p.name || "");
-    setDesc(p.description || "");
-    setBasePrice(dollarsFromCents(p.basePriceCents || 0));
-    setImageUrl(p.imageUrl || "");
-    setActive(!!p.active);
-
-    // read groups -> comma lists
-    const pGroups = groups.filter(g => g.productId === p.id);
-    const findGroup = (title: string) =>
-      pGroups.find(g => (g.title || "").toLowerCase() === title.toLowerCase());
-
-    const groupCsv = (title: string) => {
-      const g = findGroup(title);
-      if (!g) return "";
-      const opts = options
-        .filter(o => o.groupId === g.id)
-        .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
-        .map(o => o.name);
-      return opts.join(", ");
-    };
-
-    setBreads(groupCsv("Breads"));
-    setCheeses(groupCsv("Cheeses"));
-    setMeats(groupCsv("Meats"));
-    setToppings(groupCsv("Toppings"));
-  }
-
-  async function saveProduct() {
-    if (!catalog) return;
-
-    const catId = toId(categoryId);
-    if (!catId) throw new Error("Pick a category");
-
-    const pid = toId(productId || name);
-    if (!pid) throw new Error("Product id is required (or name)");
-
-    const next: CatalogExport = JSON.parse(JSON.stringify(catalog));
-
-    // ensure category exists
-    if (!next.categories.some(c => c.id === catId)) {
-      next.categories.push({
-        id: catId,
-        name: categoryName || catId,
-        sort: next.categories.length,
-        imageUrl: null,
-        active: true,
-      });
-    }
-
-    // upsert product
-    const baseCents = centsFromDollars(basePrice);
-    const existingIndex = next.products.findIndex(p => p.id === pid);
-    const prodRow = {
-      id: pid,
-      categoryId: catId,
-      name: name.trim(),
-      description: desc || "",
-      basePriceCents: baseCents,
-      imageUrl: imageUrl?.trim() ? imageUrl.trim() : null,
-      active: !!active,
-    };
-
-    if (existingIndex >= 0) next.products[existingIndex] = prodRow;
-    else next.products.push(prodRow);
-
-    // helper to upsert a modifier group + its options from CSV
-    const upsertGroup = (title: string, csv: string, required: boolean, uiType: "radio" | "chips", sort: number) => {
-      const list = splitCSV(csv);
-      // if empty, remove group + its options
-      const groupId = `${title.toLowerCase()}_${pid}`;
-
-      // delete old
-      next.modifierGroups = next.modifierGroups.filter(g => g.id !== groupId);
-      next.modifierOptions = next.modifierOptions.filter(o => o.groupId !== groupId);
-
-      if (!list.length) return;
-
-      next.modifierGroups.push({
-        id: groupId,
-        productId: pid,
-        title,
-        required,
-        minSelect: required ? 1 : 0,
-        maxSelect: required ? 1 : Math.max(10, list.length),
-        uiType,
-        active: true,
-        sort,
-      });
-
-      list.forEach((optName, i) => {
-        next.modifierOptions.push({
-          id: `${groupId}_${toId(optName)}`,
-          groupId,
-          name: optName,
-          deltaCents: 0,
-          active: true,
-          sort: i,
-        });
-      });
-    };
-
-    // Build sections like your example
-    upsertGroup("Breads", breads, true, "chips", 0);
-    upsertGroup("Cheeses", cheeses, false, "chips", 1);
-    upsertGroup("Meats", meats, false, "chips", 2);
-    upsertGroup("Toppings", toppings, false, "chips", 3);
-
+  async function saveToBackend(next: CatalogExport) {
     setErr(null);
+    setOk(null);
     setBusy(true);
     try {
       await api.importCatalog(next);
-      await load();
-      setProductId(pid);
-      loadProductToEditor(pid);
-      alert("Saved ✅");
+      setOk("Saved. Kiosk will show it now.");
+      setData(next);
     } catch (e: any) {
       setErr(e?.message || "Save failed");
     } finally {
@@ -229,265 +109,403 @@ export default function MenuPage() {
     }
   }
 
-  async function deleteProduct() {
-    if (!catalog) return;
-    const pid = productId;
-    if (!pid) return;
-
-    const next: CatalogExport = JSON.parse(JSON.stringify(catalog));
-
-    next.products = next.products.filter(p => p.id !== pid);
-
-    // remove groups/options for this product
-    const groupIds = next.modifierGroups.filter(g => g.productId === pid).map(g => g.id);
-    next.modifierGroups = next.modifierGroups.filter(g => g.productId !== pid);
-    next.modifierOptions = next.modifierOptions.filter(o => !groupIds.includes(o.groupId));
-
-    setErr(null);
-    setBusy(true);
-    try {
-      await api.importCatalog(next);
-      await load();
-      alert("Deleted ✅");
-      setProductId("");
-      setName("");
-      setDesc("");
-      setBasePrice("0.00");
-      setImageUrl("");
-      setActive(true);
-      setBreads("");
-      setCheeses("");
-      setMeats("");
-      setToppings("");
-    } catch (e: any) {
-      setErr(e?.message || "Delete failed");
-    } finally {
-      setBusy(false);
-    }
+  function updateProductField(field: keyof CatalogExport["products"][number], value: any) {
+    if (!selectedProduct) return;
+    const next: CatalogExport = {
+      ...data,
+      products: data.products.map((p) => (p.id === selectedProduct.id ? { ...p, [field]: value } : p)),
+    };
+    setData(next);
   }
 
   return (
     <RequireAuth>
-      <div className="space-y-4">
+      <div className="space-y-5">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold">Menu</h1>
-            <p className="text-sm text-gray-600">Simple menu editor (fast entry for 100s of items).</p>
+            <p className="text-sm text-gray-700">
+              Simple menu builder. Edit → Save → Kiosk shows it (menu-v2).
+            </p>
           </div>
 
-          <button
-            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
-            disabled={busy}
-            onClick={load}
-          >
-            {busy ? "Working..." : "Refresh"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              className="rounded-lg border px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-60"
+              disabled={busy}
+              onClick={load}
+            >
+              {busy ? "Loading..." : "Refresh"}
+            </button>
+            <button
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              disabled={busy}
+              onClick={() => saveToBackend(data)}
+            >
+              {busy ? "Saving..." : "Save to backend"}
+            </button>
+          </div>
         </div>
 
-        {err && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {err}
-          </div>
-        )}
+        {err && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
+        {ok && <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">{ok}</div>}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* LEFT: browse */}
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <div className="text-sm font-semibold">Browse</div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          {/* Categories */}
+          <div className="lg:col-span-3 rounded-2xl border bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold">Categories</div>
+              <div className="text-xs text-gray-600">{data.categories.length}</div>
+            </div>
 
-            <div className="mt-3 space-y-2">
-              <label className="text-xs text-gray-600">Store</label>
-              <select
-                className="w-full rounded-lg border px-3 py-2 text-sm"
-                value={store}
-                onChange={(e) => setStore(e.target.value)}
-              >
-                <option value="GLOBAL">Global (all stores)</option>
-                {/* later we’ll load store list and plug overrides */}
-              </select>
-
-              <label className="text-xs text-gray-600">Category</label>
-              <select
-                className="w-full rounded-lg border px-3 py-2 text-sm"
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-              >
-                {categories.map(c => (
-                  <option key={c.id} value={c.id}>{c.name} (GLOBAL)</option>
-                ))}
-              </select>
-
-              <input
-                className="w-full rounded-lg border px-3 py-2 text-sm"
-                placeholder="Search items..."
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-
-              <div className="max-h-[520px] overflow-auto space-y-2 pr-1">
-                {filteredProducts.map(p => (
+            <div className="mt-3 space-y-2 max-h-[520px] overflow-auto pr-1">
+              {data.categories
+                .slice()
+                .sort((a, b) => (a.sort - b.sort) || a.id.localeCompare(b.id))
+                .map((c) => (
                   <button
-                    key={p.id}
+                    key={c.id}
+                    onClick={() => setCatId(c.id)}
                     className={[
-                      "w-full text-left rounded-xl border px-3 py-2 hover:bg-gray-50",
-                      p.id === productId ? "border-black bg-gray-50" : "border-gray-200",
+                      "w-full text-left rounded-xl border px-3 py-2",
+                      c.id === catId ? "border-red-600 bg-red-50" : "border-gray-200 hover:bg-gray-50",
                     ].join(" ")}
-                    onClick={() => loadProductToEditor(p.id)}
                   >
-                    <div className="font-medium">{p.name}</div>
-                    <div className="text-xs text-gray-500">{p.id}</div>
+                    <div className="font-medium">{c.name}</div>
+                    <div className="text-xs text-gray-600">GLOBAL • id: {c.id}</div>
                   </button>
                 ))}
-                {!filteredProducts.length && (
-                  <div className="text-sm text-gray-500 border rounded-xl p-3">No items.</div>
-                )}
-              </div>
+              {!data.categories.length && (
+                <div className="text-sm text-gray-600 border rounded-xl p-3">No categories yet.</div>
+              )}
+            </div>
+
+            <div className="mt-4 border-t pt-4">
+              <div className="text-sm font-semibold">Add category</div>
+              <AddCategory
+                disabled={busy}
+                onAdd={(id, name) => {
+                  const next: CatalogExport = {
+                    ...data,
+                    categories: [
+                      ...data.categories,
+                      { id, name, sort: data.categories.length, imageUrl: null, active: true },
+                    ],
+                  };
+                  setData(next);
+                  setCatId(id);
+                }}
+              />
             </div>
           </div>
 
-          {/* RIGHT: editor */}
-          <div className="lg:col-span-2 rounded-2xl border bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm text-gray-500">Store: {store === "GLOBAL" ? "Global (all stores)" : store}</div>
-                <div className="text-lg font-semibold">{name || "New Item"}</div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
-                  disabled={busy}
-                  onClick={deleteProduct}
-                >
-                  Delete
-                </button>
-                <button
-                  className="rounded-lg bg-black px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
-                  disabled={busy}
-                  onClick={async () => {
-                    try {
-                      await saveProduct();
-                    } catch (e: any) {
-                      setErr(e?.message || "Save failed");
-                    }
-                  }}
-                >
-                  {busy ? "Saving..." : "Save"}
-                </button>
-              </div>
+          {/* Products list */}
+          <div className="lg:col-span-3 rounded-2xl border bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold">Items</div>
+              <div className="text-xs text-gray-600">{productsInCategory.length}</div>
             </div>
 
-            <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium">Category</label>
-                <select
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
+            <div className="mt-3 space-y-2 max-h-[520px] overflow-auto pr-1">
+              {productsInCategory.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setProdId(p.id)}
+                  className={[
+                    "w-full text-left rounded-xl border px-3 py-2",
+                    p.id === prodId ? "border-red-600 bg-red-50" : "border-gray-200 hover:bg-gray-50",
+                  ].join(" ")}
                 >
-                  {categories.map(c => (
-                    <option key={c.id} value={c.id}>
-                      GLOBAL - {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium">Item ID (auto from name)</label>
-                <input
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                  value={productId}
-                  onChange={(e) => setProductId(e.target.value)}
-                  placeholder="Leave empty to auto-generate"
-                />
-                <div className="mt-1 text-xs text-gray-500">Tip: leave blank and we generate it from Name.</div>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-sm font-medium">Name</label>
-                <input
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Turkey Sub"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-sm font-medium">Description</label>
-                <textarea
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm min-h-[110px]"
-                  value={desc}
-                  onChange={(e) => setDesc(e.target.value)}
-                  placeholder="Write description..."
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium">Price</label>
-                <input
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                  value={basePrice}
-                  onChange={(e) => setBasePrice(e.target.value)}
-                  placeholder="0.00"
-                />
-                <div className="mt-1 text-xs text-gray-500">If size-based, keep 0.00 and add Size group later.</div>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium">Image URL (or path)</label>
-                <input
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="fresh_items/sub.jpg"
-                />
-              </div>
-
-              <div className="md:col-span-2 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={active}
-                  onChange={(e) => setActive(e.target.checked)}
-                />
-                <span className="text-sm font-medium">Is active</span>
-              </div>
-
-              <div className="md:col-span-2 border-t pt-4">
-                <div className="text-sm font-semibold">Build Options (comma separated)</div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Example: white, wheat, italian herbs
-                </p>
-
-                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-sm font-medium">Breads</label>
-                    <input className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={breads} onChange={(e) => setBreads(e.target.value)} />
+                  <div className="font-medium">{p.name}</div>
+                  <div className="text-xs text-gray-600">
+                    {p.active ? "Active" : "Inactive"} • ${centsToMoney(p.basePriceCents)}
                   </div>
-                  <div>
-                    <label className="text-sm font-medium">Cheeses</label>
-                    <input className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={cheeses} onChange={(e) => setCheeses(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Meats</label>
-                    <input className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={meats} onChange={(e) => setMeats(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">Toppings</label>
-                    <input className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" value={toppings} onChange={(e) => setToppings(e.target.value)} />
+                </button>
+              ))}
+              {!productsInCategory.length && (
+                <div className="text-sm text-gray-600 border rounded-xl p-3">No items yet.</div>
+              )}
+            </div>
+
+            <div className="mt-4 border-t pt-4">
+              <div className="text-sm font-semibold">Add item</div>
+              <AddProduct
+                disabled={busy || !catId}
+                onAdd={(id, name) => {
+                  const next: CatalogExport = {
+                    ...data,
+                    products: [
+                      ...data.products,
+                      {
+                        id,
+                        categoryId: catId,
+                        name,
+                        description: "",
+                        basePriceCents: 0,
+                        imageUrl: null,
+                        active: true,
+                      },
+                    ],
+                  };
+                  setData(next);
+                  setProdId(id);
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Editor */}
+          <div className="lg:col-span-6 rounded-2xl border bg-white p-5 shadow-sm">
+            {!selectedProduct ? (
+              <div className="text-sm text-gray-600">Select an item to edit.</div>
+            ) : (
+              <div className="space-y-5">
+                <div>
+                  <div className="text-xs text-gray-600">Store: GLOBAL (all stores)</div>
+                  <div className="mt-1 text-lg font-semibold">{selectedProduct.name}</div>
+                  <div className="text-xs text-gray-600">
+                    Category: {selectedCategory?.name || selectedProduct.categoryId}
                   </div>
                 </div>
 
-                <div className="mt-4 text-xs text-gray-500">
-                  Note: These options are saved as modifier groups/options in backend.
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium">Name</label>
+                    <input
+                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                      value={selectedProduct.name}
+                      onChange={(e) => updateProductField("name", e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium">UPC (optional)</label>
+                    <input
+                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                      placeholder="Put UPC in Description or keep separate later"
+                      value={""}
+                      onChange={() => {}}
+                      disabled
+                    />
+                    <div className="mt-1 text-xs text-gray-500">
+                      Your backend doesn’t store UPC yet. If you want UPC for POS, we add it in backend schema next.
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="text-sm font-medium">Description</label>
+                    <textarea
+                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                      rows={4}
+                      value={selectedProduct.description || ""}
+                      onChange={(e) => updateProductField("description", e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium">Price ($)</label>
+                    <input
+                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                      value={centsToMoney(selectedProduct.basePriceCents)}
+                      onChange={(e) => updateProductField("basePriceCents", moneyToCents(e.target.value))}
+                    />
+                    <div className="mt-1 text-xs text-gray-500">
+                      If Size options decide price, keep this 0 and put price in Size option deltas.
+                    </div>
+                  </div>
+
+                  <div className="flex items-end gap-3">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={!!selectedProduct.active}
+                        onChange={(e) => updateProductField("active", e.target.checked)}
+                      />
+                      Active
+                    </label>
+                    <div className="text-xs text-gray-500">Inactive items won’t show in kiosk.</div>
+                  </div>
+                </div>
+
+                {/* Quick groups */}
+                <div className="rounded-xl border bg-gray-50 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="font-semibold">Build options</div>
+                      <div className="text-xs text-gray-600">Size, Bread, Add-ons…</div>
+                    </div>
+
+                    <button
+                      className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                      onClick={() => {
+                        // quick create common groups if missing
+                        const pid = selectedProduct.id;
+                        const mkGroup = (id: string, title: string, required: boolean, min: number, max: number, uiType: "radio"|"chips", sort: number) => ({
+                          id,
+                          productId: pid,
+                          title,
+                          required,
+                          minSelect: min,
+                          maxSelect: max,
+                          uiType,
+                          active: true,
+                          sort,
+                        });
+
+                        const g1 = `size_${pid}`;
+                        const g2 = `bread_${pid}`;
+                        const g3 = `addons_${pid}`;
+
+                        const nextGroups = data.modifierGroups.slice();
+                        if (!nextGroups.some(g => g.id === g1)) nextGroups.push(mkGroup(g1, "Size", true, 1, 1, "radio", 0));
+                        if (!nextGroups.some(g => g.id === g2)) nextGroups.push(mkGroup(g2, "Bread", true, 1, 1, "chips", 1));
+                        if (!nextGroups.some(g => g.id === g3)) nextGroups.push(mkGroup(g3, "Add-ons", false, 0, 10, "chips", 2));
+
+                        setData({ ...data, modifierGroups: nextGroups });
+                      }}
+                    >
+                      + Quick add Size/Bread/Add-ons
+                    </button>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {groupsForProduct.map((g) => (
+                      <div key={g.id} className="rounded-xl border bg-white p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-semibold">{g.title}</div>
+                            <div className="text-xs text-gray-600">
+                              {g.required ? "Required" : "Optional"} • min {g.minSelect} max {g.maxSelect} • {g.uiType}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 space-y-2">
+                          {optionsForGroup(g.id).map((o) => (
+                            <div key={o.id} className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
+                              <div>{o.name}</div>
+                              <div className="text-gray-600">+${centsToMoney(o.deltaCents)}</div>
+                            </div>
+                          ))}
+
+                          <AddOption
+                            onAdd={(name, delta) => {
+                              const oid = cleanId(`${g.id}_${name}`);
+                              const next: CatalogExport = {
+                                ...data,
+                                modifierOptions: [
+                                  ...data.modifierOptions,
+                                  {
+                                    id: oid,
+                                    groupId: g.id,
+                                    name,
+                                    deltaCents: delta,
+                                    active: true,
+                                    sort: optionsForGroup(g.id).length,
+                                  },
+                                ],
+                              };
+                              setData(next);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+
+                    {!groupsForProduct.length && (
+                      <div className="text-sm text-gray-600 border rounded-xl p-3 bg-white">
+                        No build options yet. Use “Quick add Size/Bread/Add-ons”.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-gray-500">
+                    After you finish, click <b>Save to backend</b>. Then kiosk menu-v2 will show it.
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
-
       </div>
     </RequireAuth>
+  );
+}
+
+function AddCategory({ disabled, onAdd }: { disabled?: boolean; onAdd: (id: string, name: string) => void }) {
+  const [id, setId] = useState("");
+  const [name, setName] = useState("");
+
+  return (
+    <div className="mt-2 grid grid-cols-1 gap-2">
+      <input className="rounded-lg border px-3 py-2 text-sm" placeholder="id (subs)" value={id} onChange={(e) => setId(e.target.value)} disabled={disabled} />
+      <input className="rounded-lg border px-3 py-2 text-sm" placeholder="name (Subs)" value={name} onChange={(e) => setName(e.target.value)} disabled={disabled} />
+      <button
+        className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+        disabled={disabled}
+        onClick={() => {
+          const cid = cleanId(id || name);
+          const n = name.trim();
+          if (!cid || !n) return;
+          onAdd(cid, n);
+          setId("");
+          setName("");
+        }}
+      >
+        Add category
+      </button>
+    </div>
+  );
+}
+
+function AddProduct({ disabled, onAdd }: { disabled?: boolean; onAdd: (id: string, name: string) => void }) {
+  const [id, setId] = useState("");
+  const [name, setName] = useState("");
+
+  return (
+    <div className="mt-2 grid grid-cols-1 gap-2">
+      <input className="rounded-lg border px-3 py-2 text-sm" placeholder="id (turkey_sub)" value={id} onChange={(e) => setId(e.target.value)} disabled={disabled} />
+      <input className="rounded-lg border px-3 py-2 text-sm" placeholder="name (Turkey Sub)" value={name} onChange={(e) => setName(e.target.value)} disabled={disabled} />
+      <button
+        className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+        disabled={disabled}
+        onClick={() => {
+          const pid = cleanId(id || name);
+          const n = name.trim();
+          if (!pid || !n) return;
+          onAdd(pid, n);
+          setId("");
+          setName("");
+        }}
+      >
+        Add item
+      </button>
+    </div>
+  );
+}
+
+function AddOption({ onAdd }: { onAdd: (name: string, deltaCents: number) => void }) {
+  const [name, setName] = useState("");
+  const [delta, setDelta] = useState("0");
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
+      <input className="rounded-lg border px-3 py-2 text-sm sm:col-span-2" placeholder="Option name (6 inch)" value={name} onChange={(e) => setName(e.target.value)} />
+      <input className="rounded-lg border px-3 py-2 text-sm" placeholder="+$ (6.49)" value={delta} onChange={(e) => setDelta(e.target.value)} />
+      <button
+        className="rounded-lg border px-3 py-2 text-sm font-semibold hover:bg-gray-50 sm:col-span-3"
+        onClick={() => {
+          const n = name.trim();
+          if (!n) return;
+          onAdd(n, Math.round(Number(delta || 0) * 100));
+          setName("");
+          setDelta("0");
+        }}
+      >
+        + Add option
+      </button>
+    </div>
   );
 }

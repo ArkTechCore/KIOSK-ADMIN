@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -8,11 +8,12 @@ export default function LoginPage() {
   const r = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    // prevents “stuck” invalid token loops
+    // avoid “Invalid admin token” loops from old tokens
     clearToken();
   }, []);
 
@@ -20,7 +21,7 @@ export default function LoginPage() {
     <div className="mx-auto max-w-md">
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <h1 className="text-xl font-semibold">Admin Login</h1>
-        <p className="mt-1 text-sm text-gray-600">Sign in to manage Stores and Menu.</p>
+        <p className="mt-1 text-sm text-gray-600">Stores + Menu</p>
 
         {err && (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -59,7 +60,6 @@ export default function LoginPage() {
               setBusy(true);
               try {
                 const out = await api.adminLogin(email.trim(), password);
-                if (!out?.access_token) throw new Error("Login did not return access_token");
                 setToken(out.access_token);
                 r.push("/stores");
               } catch (e: any) {
@@ -73,8 +73,7 @@ export default function LoginPage() {
           </button>
 
           <div className="text-xs text-gray-500">
-            If you see “Invalid admin token”, it usually means your API base URL is wrong or you copied the device token
-            instead of the admin token.
+            If you see “Invalid admin token”, 99% it’s wrong API base URL or you used a device token.
           </div>
         </div>
       </div>
