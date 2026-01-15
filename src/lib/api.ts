@@ -30,9 +30,13 @@ async function request<T = any>(path: string, opts: RequestInit = {}): Promise<T
 
   const token = getToken();
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    Accept: "application/json",
     ...(opts.headers as any),
   };
+
+  // Only set Content-Type when sending a body
+  const hasBody = typeof opts.body !== "undefined" && opts.body !== null;
+  if (hasBody && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
 
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -72,13 +76,7 @@ export type AdminStore = {
 };
 
 export type CatalogExport = {
-  categories: Array<{
-    id: string;
-    name: string;
-    sort: number;
-    imageUrl?: string | null;
-    active: boolean;
-  }>;
+  categories: Array<{ id: string; name: string; sort: number; imageUrl?: string | null; active: boolean }>;
   products: Array<{
     id: string;
     categoryId: string;
@@ -113,13 +111,39 @@ export type CatalogExport = {
 export const api = {
   // -------- AUTH --------
   adminLogin: async (email: string, password: string) => {
-    const out = await request<any>("/admin/auth/login", {
+    if (!BASE) throw new Error("Missing NEXT_PUBLIC_API_BASE_URL");
+
+    // use fetch directly so we can read response headers
+    const res = await fetch(`${BASE}/admin/auth/login`, {
       method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ email, password }),
+      cache: "no-store",
     });
 
-    // ✅ normalize token from ANY backend shape
-    const token =
+    const authHeader = res.headers.get("authorization") || res.headers.get("Authorization");
+
+    const text = await res.text();
+    let out: any = null;
+    try {
+      out = text ? JSON.parse(text) : null;
+    } catch {
+      out = text || null;
+    }
+
+    if (!res.ok) {
+      const msg =
+        (out && typeof out === "object" && (out.detail || out.message)) ||
+        (typeof out === "string" ? out : null) ||
+        `Login failed (${res.status})`;
+      throw new Error(msg);
+    }
+
+    // 1) token in JSON body (many shapes)
+    let token =
       out?.access_token ||
       out?.accessToken ||
       out?.token ||
@@ -128,10 +152,16 @@ export const api = {
       out?.data?.token ||
       out?.data?.jwt;
 
+    // 2) token in Authorization header: "Bearer xxx"
+    if (!token && authHeader) {
+      const m = authHeader.match(/Bearer\s+(.+)/i);
+      token = (m?.[1] || authHeader).trim();
+    }
+
     if (!token) {
       throw new Error(
-        "Login did not return access_token. Backend response: " +
-          JSON.stringify(out)
+        "Login did not return a token (body or Authorization header). Backend response: " +
+          (typeof out === "string" ? out : JSON.stringify(out))
       );
     }
 
@@ -141,12 +171,7 @@ export const api = {
   // -------- STORES --------
   listStores: () => request<AdminStore[]>("/admin/stores"),
 
-  createStore: (
-    store_id: string,
-    name: string,
-    password: string,
-    tax_rate: number
-  ) =>
+  createStore: (store_id: string, name: string, password: string, tax_rate: number) =>
     request("/admin/stores", {
       method: "POST",
       body: JSON.stringify({ store_id, name, password, tax_rate }),
@@ -169,7 +194,5 @@ export const api = {
 
   // -------- REPORTS --------
   adminDailyReport: (date?: string) =>
-    request(
-      `/admin/reports/daily${date ? `?date=${encodeURIComponent(date)}` : ""}`
-    ),
+    request(`/admin/reports/daily${date ? `?date=${encodeURIComponent(date)}` : ""}`),
 };
