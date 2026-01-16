@@ -102,6 +102,13 @@ export type StoreOverridesIn = {
 };
 
 export const api = {
+
+  // -------- REPORTS --------
+adminDailyReport: (date?: string) =>
+  request(
+    `/admin/reports/daily${date ? `?date=${encodeURIComponent(date)}` : ""}`
+  ),
+
   // -------- AUTH --------
   // Supports any backend shape: {token} or {access_token} or nested.
   adminLogin: async (email: string, password: string): Promise<AdminLoginOut> => {
