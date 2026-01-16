@@ -4,63 +4,85 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, clearToken, setToken } from "@/lib/api";
 
+function extractToken(out: any): string | null {
+  return (
+    out?.access_token ||
+    out?.accessToken ||
+    out?.token ||
+    out?.jwt ||
+    out?.data?.access_token ||
+    out?.data?.accessToken ||
+    out?.data?.token ||
+    out?.data?.jwt ||
+    null
+  );
+}
+
 export default function LoginPage() {
   const r = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    // avoid “Invalid admin token” loops from old tokens
-    clearToken();
+    clearToken(); // prevents invalid token loops
   }, []);
 
   return (
-    <div className="mx-auto max-w-md">
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-semibold">Admin Login</h1>
-        <p className="mt-1 text-sm text-gray-600">Stores + Menu</p>
+    <div className="card" style={{ maxWidth: 520, margin: "28px auto" }}>
+      <div className="cardHeader">
+        <div>
+          <h1 className="h1">Admin Login</h1>
+          <p className="p">Sign in to manage Stores and Menu.</p>
+        </div>
+      </div>
 
-        {err && (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {err}
-          </div>
-        )}
+      <div className="cardBody">
+        {err && <div className="note">{err}</div>}
 
-        <div className="mt-4 space-y-3">
-          <div>
-            <label className="text-sm font-medium text-gray-800">Email</label>
-            <input
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-200"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@example.com"
-              autoComplete="username"
-            />
-          </div>
+        <div style={{ marginTop: 14 }}>
+          <label className="label">Email</label>
+          <input
+            className="input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="admin@quickfoods.com"
+            autoComplete="username"
+          />
+        </div>
 
-          <div>
-            <label className="text-sm font-medium text-gray-800">Password</label>
-            <input
-              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-200"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-            />
-          </div>
+        <div style={{ marginTop: 12 }}>
+          <label className="label">Password</label>
+          <input
+            className="input"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            autoComplete="current-password"
+          />
+        </div>
 
+        <div style={{ marginTop: 14 }}>
           <button
-            className="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+            className="btn primary"
+            style={{ width: "100%" }}
             disabled={busy}
             onClick={async () => {
               setErr(null);
               setBusy(true);
               try {
                 const out = await api.adminLogin(email.trim(), password);
-                setToken(out.access_token);
+
+                const token = extractToken(out);
+                if (!token) {
+                  throw new Error(
+                    "Login did not return a token. Response: " + JSON.stringify(out)
+                  );
+                }
+
+                setToken(token);
                 r.push("/stores");
               } catch (e: any) {
                 setErr(e?.message || "Login failed");
@@ -71,10 +93,6 @@ export default function LoginPage() {
           >
             {busy ? "Signing in..." : "Sign in"}
           </button>
-
-          <div className="text-xs text-gray-500">
-            If you see “Invalid admin token”, 99% it’s wrong API base URL or you used a device token.
-          </div>
         </div>
       </div>
     </div>

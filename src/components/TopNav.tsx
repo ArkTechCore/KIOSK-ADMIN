@@ -9,53 +9,45 @@ export default function TopNav() {
   const r = useRouter();
   const loggedIn = !!getToken();
 
-  const item = (href: string, label: string) => {
-    const active = p === href || (href !== "/" && p.startsWith(href + "/"));
+  const tab = (href: string, label: string) => {
+    const active = p === href;
     return (
-      <Link
-        href={href}
-        className={[
-          "px-3 py-2 rounded-lg text-sm font-medium transition",
-          active ? "bg-red-600 text-white" : "text-gray-800 hover:bg-gray-100",
-        ].join(" ")}
-      >
+      <Link className={`tab ${active ? "active" : ""}`} href={href}>
         {label}
       </Link>
     );
   };
 
   return (
-    <div className="border-b bg-white">
-      <div className="mx-auto max-w-6xl px-4 py-3 flex items-center gap-3">
-        <Link
-          href={loggedIn ? "/stores" : "/login"}
-          className="font-semibold text-gray-900"
-        >
-          Kiosk Admin
-        </Link>
+    <div className="navrow">
+      <div className="brand">
+        <Link href={loggedIn ? "/stores" : "/login"}>Kiosk Admin</Link>
+        <span className="badge">Stores • Menu • Overrides</span>
+      </div>
 
-        {loggedIn && (
-          <div className="flex items-center gap-2 ml-2">
-            {item("/stores", "Stores")}
-            {item("/menu", "Menu")}
-            {item("/store-menu", "Store Menu")}
-            {item("/reports", "Reports")}
-          </div>
-        )}
-
-        <div className="ml-auto">
-          {loggedIn && (
-            <button
-              onClick={() => {
-                clearToken();
-                r.push("/login");
-              }}
-              className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50"
-            >
-              Logout
-            </button>
-          )}
+      {loggedIn && (
+        <div className="tabs">
+          {tab("/stores", "Stores")}
+          {tab("/menu", "Menu")}
         </div>
+      )}
+
+      <div>
+        {loggedIn ? (
+          <button
+            className="btn small"
+            onClick={() => {
+              clearToken();
+              r.push("/login");
+            }}
+          >
+            Logout
+          </button>
+        ) : (
+          <Link className="btn small" href="/login">
+            Login
+          </Link>
+        )}
       </div>
     </div>
   );
